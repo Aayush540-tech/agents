@@ -1,55 +1,51 @@
-# 🗣️ Conversational AI Agent with Static Backchannel Filtering
+# 🗣️ Conversational AI Agent with Dynamic Backchannel Filtering
 
 ## Project Overview
 
-This project implements an advanced conversational AI agent using an **Intelligent Interrupt Handler**. The core feature is the use of a predefined, static list of **ignored words (backchannels)** to filter out common conversational fillers (like "yeah," "uh-huh") and prevent the agent from being unnecessarily interrupted. This significantly improves the natural flow of the full-duplex conversation.
+This project implements an advanced conversational AI agent using an **Intelligent Interrupt Handler**. The core feature is the use of a **dynamically updatable list of ignored words (backchannels)** to filter out common conversational fillers (like "yeah," "uh-huh") and prevent the agent from being unnecessarily interrupted. This significantly improves the natural flow of the full-duplex conversation and allows updating the ignored list at runtime without a restart.
 
 ## Key Components
 
-### 1\. The Agent (`my_ai_agent.py`)
+### 1. The Agent (`my-ai-agent.py`)
 
 This is the main entry point, containing the session setup and event handlers for managing the conversation flow.
 
-### 2\. Intelligent Interrupt Handler (`IntelligentInterruptHandler.py`)
+### 2. Intelligent Interrupt Handler (`IntelligentInterruptHandler.py`)
 
-This class contains the core logic for distinguishing between a listener backchannel and a genuine interruption command. It checks for:
-
-  * **Static Ignored Words:** Exact matches to `IGNORED_WORDS` are filtered.
-  * **Explicit Commands:** Words like "STOP" are immediately processed if confidence is high.
+This class contains the logic for distinguishing between a listener backchannel and a genuine interruption command. Key features:
+  * **Dynamic Ignored Words:** The list of ignored words is **updatable at runtime**, not static.
+  * **Command Handling:** Words like "STOP" are immediately processed if confidence is high.
   * **Confidence Threshold:** Filters out low-confidence, noisy transcriptions.
+  * **Persistence:** The list is saved to disk (`ignored_words.json`) and automatically loaded on restart.
+  * **Thread Safety:** Uses a thread-safe set with threading locks to allow dynamic updates from multiple asynchronous events.
 
-## Feature Branch Details: Static Interruption Filtering
+## 🔄 Dynamic Interruption Filtering
 
-### What Changed: Overview of new modules, params, and logic added.
+### What Changed: 
+  * **Dynamic Storage:** Instead of a static list in `config.py`, ignored words are stored in memory as a Python set.
+  * **Persistence:** The set is written to and read from `ignored_words.json`. 
+  * **API/Voice Command Support:** Ignored words can be added or removed live by voice command (e.g., “Add ignore uhhh”).
+  * **Threading:** All access to the list/set is guarded by a `threading.Lock`, enabling safe live updates even when accessed by multiple concurrent event handlers.
 
-  * **New Module:** Introduced `IntelligentInterruptHandler.py` to encapsulate and centralize all interruption decision logic, separating it from the main agent loop.
-  * **New Parameter:** The `IGNORED_WORDS` list was introduced in `config.py` to hold the static, pre-defined set of backchannels (e.g., `mhm`, `i see`).
-  * **Core Logic:** The `user_speech_transcribed` event handler now delegates the interruption decision to an instance of `IntelligentInterruptHandler`, which applies the static filter and confidence checks.
+### What Works:
+  * **Live Backchannel Filtering:** The agent ignores any words currently in the in-memory dynamic list, which can be augmented or trimmed without restarts.
+  * **Real-Time Updates:** Admins/users can safely add/remove ignored words at any time via supported commands.
+  * **Persistence:** All updates are durable and survive process restarts.
 
-### What Works: Features verified through manual or automated testing.
+### Known Issues:
+  * **Phrase Matching:** Only exact matches are currently ignored (no partial/substring match for complex utterances, e.g., "Yeah, can you pause" is an interruption if not exactly "yeah").
+  * **Concurrency:** Threading and async event-handling are used to ensure updates are never lost or corrupted but should be carefully maintained if extending internals.
+  * **User Feedback:** Confirmation of changes is provided via voice output and logs.
 
-  * **Backchannel Filtering:** The agent successfully ignores single-word or short phrases (e.g., **"mhm," "right"**) found in the static `IGNORED_WORDS` list, allowing it to complete its current speech segment without disruption.
-  * **Explicit Interruption:** Explicit commands like **"STOP"** or **"WAIT"** are immediately recognized and halt the agent's speech, provided the transcription confidence meets the required threshold.
-  * **Full-Duplex Flow:** The agent maintains responsiveness, ensuring low latency for STT, LLM, and TTS services.
+### Steps to Test:
+1. **Start the agent** using the instructions in the "Running the Agent" section below.
+2. **Add Ignored Word:** While the agent is running, say: **"Add ignore uhhh"**.
+    - *Expected Result:* The agent will confirm and `uhhh` will be ignored in real time.
+3. **Remove Ignored Word:** Say: **"Remove ignore uhhh"**.
+    - *Expected Result:* The agent will confirm and `uhhh` will again act as a valid interruption trigger.
+4. **Persistence:** Restart the agent. Previously ignored words will be loaded from `ignored_words.json`.
 
-### Known Issues: Any edge cases or instability observed.
-
-  * **Static Limitation:** The word list is **static** and cannot be updated dynamically during a session. A restart is required to add or remove ignored words.
-  * **Partial Match Edge Case:** The current logic only ignores the transcription if it is an *exact* match for a word in `IGNORED_WORDS`. A complex phrase starting with a filler (e.g., "Yeah, can you pause for a second") is currently treated as a full interruption.
-  * **Confidence Instability:** Highly mumbled or low-confidence filler words sometimes slip through the confidence threshold, leading to minor, unwarranted interruptions.
-
-### Steps to Test: How to start the agent and verify filler vs. real speech handling.
-
-1.  **Start the agent** using the instructions in the "Running the Agent" section below.
-2.  **Test 1 (Ignored Backchannel):** While the agent is speaking a long response, say: **"Mhm"** or **"Got it"**.
-      * *Expected Result:* The agent must continue speaking without interruption.
-3.  **Test 2 (Valid Interruption):** While the agent is speaking, say: **"Stop talking now"**.
-      * *Expected Result:* The agent should immediately halt its speech and acknowledge the interruption.
-4.  **Test 3 (Unlisted Filler):** While the agent is speaking, say: **"Like"** (assuming "like" is *not* in the static list).
-      * *Expected Result:* The agent should halt, demonstrating the need for new fillers to be added to the static list.
-
-### Environment Details: Python version, dependencies, and config instructions.
-
+### Environment Details:
   * **Python Version:** Python 3.8+
   * **Dependencies:** All required packages are listed in `requirements.txt`.
   * **Required External APIs:**
@@ -57,24 +53,14 @@ This class contains the core logic for distinguishing between a listener backcha
       * **Text-to-Speech (TTS): LiveKit In-Built TTS**
       * **Large Language Model (LLM): Grok API**
 
------
+---
 
-## Configuration & Static Filtering
+## Dynamic Configuration Example
 
-The list of words and phrases the agent will ignore is defined statically in `config.py`.
+The ignored word list is no longer set statically in `config.py`. Instead, it is managed at runtime, persisted to disk, and guarded for thread safety.
+ 
+ ## To run AI-Agent
 
-### `config.py` (Example)
+ python -m examples.my-ai-agent console
 
-```python
-# List of words/phrases the agent will ignore to prevent unnecessary interruption.
-IGNORED_WORDS = [
-    "yeah",
-    "uh-huh",
-    "mhm",
-    "right",
-    "i see",
-    "okay",
-    "got it",
-    "wow",
-    "go on",
-]
+ ## THANK YOU
